@@ -1,0 +1,11 @@
+JOURNAL - app instalable
+
+1) Sube esta carpeta entera a un hosting con HTTPS (necesario para instalar):
+   - Netlify Drop: entra en app.netlify.com/drop y arrastra la carpeta.
+   - o GitHub Pages / Cloudflare Pages.
+2) Abre la direccion que te den desde el movil.
+   - Android (Chrome): menu de tres puntos > "Instalar app".
+   - iPhone (Safari): boton Compartir > "Anadir a pantalla de inicio".
+
+Los datos se guardan en el navegador de ese dispositivo.
+Para pasarlos a otro dispositivo: Ajustes > Copia de seguridad (JSON) y luego Restaurar copia.

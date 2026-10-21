@@ -164,7 +164,7 @@ textarea{resize:vertical}
 .lt:hover{background:var(--panel2)}
 .lt .a{display:flex;gap:8px;align-items:center;min-width:0}
 .lt .b{grid-column:1;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt .b .tag-funded{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;background:color-mix(in srgb,#f59e0b 20%,transparent);color:#ea8a0c;vertical-align:1px}
+.tag-funded{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;background:color-mix(in srgb,#f59e0b 20%,transparent);color:#ea8a0c;vertical-align:1px}
 .lt .b .acc{color:var(--text,inherit);font-weight:600}
 .lt .c{grid-column:2;grid-row:1/3;text-align:right;font:600 14px var(--f-num);align-self:center}
 .lt .c small{display:block;font-weight:400;color:var(--muted);font-size:11.5px}
@@ -805,7 +805,7 @@ function renderBar(){
   $('f-range').value=S.f.range;$('f-from').value=S.f.from;$('f-to').value=S.f.to;
   const accs=Array.from(new Set(S.all.map(t=>t.account).filter(Boolean))).sort();
   if(S.f.account!=='all'&&accs.indexOf(S.f.account)<0)S.f.account='all';
-  $('f-acc').innerHTML='<option value="all">Todas las cuentas</option>'+accs.map(a=>'<option value="'+esc(a)+'">'+esc(a)+'</option>').join('');
+  $('f-acc').innerHTML='<option value="all">Todas las cuentas</option>'+accs.map(a=>'<option value="'+esc(a)+'">'+esc(a)+(accFunded(a)?' · Funded':'')+'</option>').join('');
   $('f-acc').value=S.f.account;
   const am=document.querySelector('#filters .only-m');if(am)am.hidden=S.view==='fondeo';
   $('sync').textContent=(S.view==='fondeo'?foDemo():S.demo)?'':(S.kind==='cloud'?'Guardado en tu cuenta. Solo tú lo ves.':(S.kind==='local'?'Guardado solo en este navegador.':''));
@@ -859,7 +859,7 @@ function viewResumen(F){
   const sk=tile('Racha actual',st.cur?st.cur.n+(st.cur.res==='W'?(st.cur.n===1?' ganadora':' ganadoras'):(st.cur.n===1?' perdedora':' perdedoras')):'—','Mejor racha '+st.bw+' · peor racha '+st.bl);
   const last=sortChrono(F).slice(-6).reverse().map(t=>
     '<button class="lt" type="button" data-act="edit" data-id="'+esc(t.id)+'"><span class="a"><b>'+esc(t.asset||'—')+'</b><span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></span>'+
-    '<span class="b">'+esc(t.setup||'Sin setup')+' · '+fmtDS(t.date)+(t.time?' '+esc(t.time):'')+'</span>'+
+    '<span class="b">'+(t.account?'<b class="acc">'+esc(t.account)+'</b>'+fTag(t.account):'Sin cuenta')+' · '+fmtDS(t.date)+'</span>'+
     '<span class="c '+sg(t.net)+'">'+money(t.net,{plus:true})+'<small>'+(t.r!=null?rTxt(t.r):'')+'</small></span></button>').join('');
   return '<div class="stack">'+
     '<section class="kpis">'+hero+wr+pf+ex+ra+ddt+sk+'</section>'+
@@ -890,8 +890,8 @@ function bestWorstPanel(F){
     if(g.length<2)return '<div class="row"><div class="t"><span>'+d.short+'</span><b class="dim">Faltan operaciones</b></div></div>';
     g.sort((a,b)=>b.s.wr-a.s.wr);
     const hi=g[0],lo=g[g.length-1];
-    return '<div class="row"><div class="t"><span>'+d.short+' · mejor</span><b class="up">'+esc(rowLabel(d,hi))+' '+pct(hi.s.wr)+'</b></div></div>'+
-      '<div class="row"><div class="t"><span>'+d.short+' · peor</span><b class="dn">'+esc(rowLabel(d,lo))+' '+pct(lo.s.wr)+'</b></div></div>';
+    return '<div class="row"><div class="t"><span>'+d.short+' · mejor</span><b class="up">'+lblH(d,rowLabel(d,hi))+' '+pct(hi.s.wr)+'</b></div></div>'+
+      '<div class="row"><div class="t"><span>'+d.short+' · peor</span><b class="dn">'+lblH(d,rowLabel(d,lo))+' '+pct(lo.s.wr)+'</b></div></div>';
   }).join('');
   return '<section class="panel"><div class="panel-head"><div><h2>Mejor y peor win rate</h2><p class="sub">Solo categorías con '+minN+' o más operaciones</p></div></div><div class="bw">'+rows+'</div>'+
     '<button class="btn small wide" type="button" style="margin-top:12px" data-act="nav" data-view="analisis">Ver análisis completo</button></section>';
@@ -1005,7 +1005,7 @@ function opsTable(F){
   let h='<table><thead><tr><th>Fecha</th><th>Cuenta</th><th>Activo</th><th>Setup</th><th>Confluencias</th><th class="n">P&amp;L neto</th><th class="n">R</th><th>Resultado</th></tr></thead><tbody>';
   L.forEach(t=>{
     const cf=t.conf.slice(0,3).map(c=>'<span class="tag">'+esc(c)+'</span>').join('')+(t.conf.length>3?'<span class="tag">+'+(t.conf.length-3)+'</span>':'');
-    h+='<tr tabindex="0" data-act="edit" data-id="'+esc(t.id)+'"><td>'+fmtD(t.date)+'<small class="num">'+esc(t.time||'')+'</small></td><td>'+esc(t.account||'—')+'</td>'+
+    h+='<tr tabindex="0" data-act="edit" data-id="'+esc(t.id)+'"><td>'+fmtD(t.date)+'<small class="num">'+esc(t.time||'')+'</small></td><td>'+(t.account?accH(t.account):'—')+'</td>'+
       '<td>'+esc(t.asset||'—')+' <span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></td><td>'+esc(t.setup||'—')+(t.session?'<small>'+esc(t.session)+'</small>':'')+'</td><td>'+(cf||'<span class="dim">—</span>')+'</td>'+
       '<td class="n '+sg(t.net)+'">'+money(t.net,{plus:true})+'</td><td class="n '+sg(t.r)+'">'+(t.r==null?'—':rTxt(t.r))+'</td><td><span class="res '+t.res+'">'+(t.res==='W'?'Ganada':(t.res==='L'?'Perdida':'BE'))+'</span></td></tr>';
   });
@@ -1061,7 +1061,7 @@ function viewAnalisis(F){
     rows.forEach(r=>{
       const v=r.s.wr,sm=r.s.n<minN;
       const tp=tipRef(r.label,[['Win rate',pct(v)],['Operaciones',String(r.s.n)],['G / P / BE',r.s.w+' / '+r.s.l+' / '+r.s.be],['P&L neto',money(r.s.net,{plus:true})]]);
-      bars+='<div class="brow" data-tip="'+tp+'"><div class="bl2">'+esc(r.label)+'<small>'+r.s.n+' ops'+(sm?' · muestra pequeña':'')+'</small></div>'+
+      bars+='<div class="brow" data-tip="'+tp+'"><div class="bl2">'+lblH(d,r.label)+'<small>'+r.s.n+' ops'+(sm?' · muestra pequeña':'')+'</small></div>'+
         '<div class="btrack'+(sm?' small':'')+'">'+(v!=null?'<i class="bfill '+(v>=centre?'g':'l')+'" style="left:0;width:'+(v*100).toFixed(1)+'%"></i>':'')+'<b class="mark" style="left:'+(centre*100).toFixed(1)+'%"></b></div><div class="bv">'+pct(v)+'</div></div>';
     });
   }else{
@@ -1069,16 +1069,16 @@ function viewAnalisis(F){
     rows.forEach(r=>{
       const v=mval(r.s,m),sm=r.s.n<minN,w=v==null?0:Math.abs(v)/mx*50;
       const tp=tipRef(r.label,[[METRICS[m],fmtMetric(v,m)],['Operaciones',String(r.s.n)],['Win rate',pct(r.s.wr)],['P&L neto',money(r.s.net,{plus:true})]]);
-      bars+='<div class="brow" data-tip="'+tp+'"><div class="bl2">'+esc(r.label)+'<small>'+r.s.n+' ops'+(sm?' · muestra pequeña':'')+'</small></div>'+
+      bars+='<div class="brow" data-tip="'+tp+'"><div class="bl2">'+lblH(d,r.label)+'<small>'+r.s.n+' ops'+(sm?' · muestra pequeña':'')+'</small></div>'+
         '<div class="btrack'+(sm?' small':'')+'">'+(v==null?'':'<i class="bfill '+(v>=0?'g':'l')+'" style="left:'+(v>=0?50:50-w).toFixed(1)+'%;width:'+w.toFixed(1)+'%"></i>')+'<b class="mark" style="left:50%"></b></div><div class="bv '+sg(v)+'">'+fmtMetric(v,m)+'</div></div>';
     });
   }
-  const callout=(cls,lbl,r)=>r?'<div class="callout '+cls+'"><span class="lbl">'+lbl+'</span><span class="nm">'+esc(r.label)+'</span><span class="mt">'+METRICS[m]+' '+fmtMetric(mval(r.s,m),m)+' · '+r.s.n+' operaciones</span></div>':
+  const callout=(cls,lbl,r)=>r?'<div class="callout '+cls+'"><span class="lbl">'+lbl+'</span><span class="nm">'+lblH(d,r.label)+'</span><span class="mt">'+METRICS[m]+' '+fmtMetric(mval(r.s,m),m)+' · '+r.s.n+' operaciones</span></div>':
     '<div class="callout"><span class="lbl dim">'+lbl+'</span><span class="mt">Hacen falta al menos 2 categorías con '+minN+' o más operaciones.</span></div>';
   let table='<table><thead><tr><th>'+esc(d.short)+'</th><th class="n">Ops</th><th class="n">Win rate</th><th class="n">G / P / BE</th><th class="n">P&amp;L neto</th><th class="n">Exp. R</th><th class="n">Profit factor</th></tr></thead><tbody>';
   rows.forEach(r=>{
     const s=r.s;
-    table+='<tr><td>'+esc(r.label)+(s.n<minN?'<small class="sm">Muestra pequeña</small>':'')+'</td><td class="n">'+s.n+'</td><td class="n">'+pct(s.wr)+'</td><td class="n">'+s.w+' / '+s.l+' / '+s.be+'</td><td class="n '+sg(s.net)+'">'+money(s.net,{plus:true})+'</td><td class="n '+sg(s.expR)+'">'+(s.expR==null?'—':rTxt(s.expR))+'</td><td class="n">'+(s.pf==null?'—':(s.pf===Infinity?'∞':fmtN(s.pf,2)))+'</td></tr>';
+    table+='<tr><td>'+lblH(d,r.label)+(s.n<minN?'<small class="sm">Muestra pequeña</small>':'')+'</td><td class="n">'+s.n+'</td><td class="n">'+pct(s.wr)+'</td><td class="n">'+s.w+' / '+s.l+' / '+s.be+'</td><td class="n '+sg(s.net)+'">'+money(s.net,{plus:true})+'</td><td class="n '+sg(s.expR)+'">'+(s.expR==null?'—':rTxt(s.expR))+'</td><td class="n">'+(s.pf==null?'—':(s.pf===Infinity?'∞':fmtN(s.pf,2)))+'</td></tr>';
   });
   table+='</tbody></table>';
   const seg=(items,cur,act)=>'<div class="seg" role="group">'+items.map(i=>'<button type="button" data-act="'+act+'" data-v="'+i[0]+'" aria-pressed="'+(i[0]===cur)+'">'+i[1]+'</button>').join('')+'</div>';
@@ -1148,6 +1148,9 @@ function viewCal(){
     '<div class="kpis" style="margin-bottom:14px">'+tile('P&L del mes','<span class="'+sg(s.net)+'">'+money(s.net,{plus:true})+'</span>',s.n+' operaciones')+tile('Win rate',pct(s.wr),s.w+' G · '+s.l+' P · '+s.be+' BE')+tile('Días ganadores',String(win),'de '+days.size+' con operaciones')+tile('Días perdedores',String(los),'de '+days.size+' con operaciones')+'</div>'+g+
     '<p class="note" style="margin-top:12px">Pulsa un día para ver sus operaciones.</p></section></div>';
 }
+const fTag=n=>accFunded(n)?' <span class="tag-funded">Funded</span>':'';
+const accH=n=>esc(n)+fTag(n);
+const lblH=(d,l)=>d&&d.id==='account'?accH(l):esc(l);
 function accFunded(name){
   const n=String(name||'').toLowerCase().replace(/[^a-z0-9#]+/g,' ').trim();if(!n)return false;
   const nm=x=>String(x||'').toLowerCase().replace(/[^a-z0-9#]+/g,' ').trim();
@@ -1157,7 +1160,7 @@ function accFunded(name){
 }
 function dayModal(ds){
   const L=sortChrono(byAccount().filter(t=>t.date===ds)),s=stats(L);
-  const rows=L.map(t=>'<button class="lt" type="button" data-act="edit" data-id="'+esc(t.id)+'"><span class="a"><b>'+esc(t.asset||'—')+'</b><span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></span><span class="b">'+(t.account?'<b class="acc">'+esc(t.account)+'</b>'+(accFunded(t.account)?' <span class="tag-funded">Funded</span>':''):'Sin cuenta')+'</span><span class="c '+sg(t.net)+'">'+money(t.net,{plus:true})+'<small>'+(t.r!=null?rTxt(t.r):'')+'</small></span></button>').join('');
+  const rows=L.map(t=>'<button class="lt" type="button" data-act="edit" data-id="'+esc(t.id)+'"><span class="a"><b>'+esc(t.asset||'—')+'</b><span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></span><span class="b">'+(t.account?'<b class="acc">'+esc(t.account)+'</b>'+fTag(t.account):'Sin cuenta')+'</span><span class="c '+sg(t.net)+'">'+money(t.net,{plus:true})+'<small>'+(t.r!=null?rTxt(t.r):'')+'</small></span></button>').join('');
   openModal('<h2>'+fmtD(ds)+'</h2><p class="note" style="margin-bottom:10px">'+s.n+' operaciones · <b class="'+sg(s.net)+'">'+money(s.net,{plus:true})+'</b></p>'+rows+'<div class="btns"><button class="btn" type="button" data-act="close">Cerrar</button></div>');
 }
 

@@ -1149,7 +1149,7 @@ function viewCal(){
 }
 function dayModal(ds){
   const L=sortChrono(byAccount().filter(t=>t.date===ds)),s=stats(L);
-  const rows=L.map(t=>'<button class="lt" type="button" data-act="edit" data-id="'+esc(t.id)+'"><span class="a"><b>'+esc(t.asset||'—')+'</b><span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></span><span class="b">'+(t.account?'<b class="acc">'+esc(t.account)+'</b> · ':'')+esc(t.setup||'Sin setup')+(t.time?' · '+esc(t.time):'')+'</span><span class="c '+sg(t.net)+'">'+money(t.net,{plus:true})+'<small>'+(t.r!=null?rTxt(t.r):'')+'</small></span></button>').join('');
+  const rows=L.map(t=>'<button class="lt" type="button" data-act="edit" data-id="'+esc(t.id)+'"><span class="a"><b>'+esc(t.asset||'—')+'</b><span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></span><span class="b">'+(t.account?'<b class="acc">'+esc(t.account)+'</b>':'Sin cuenta')+'</span><span class="c '+sg(t.net)+'">'+money(t.net,{plus:true})+'<small>'+(t.r!=null?rTxt(t.r):'')+'</small></span></button>').join('');
   openModal('<h2>'+fmtD(ds)+'</h2><p class="note" style="margin-bottom:10px">'+s.n+' operaciones · <b class="'+sg(s.net)+'">'+money(s.net,{plus:true})+'</b></p>'+rows+'<div class="btns"><button class="btn" type="button" data-act="close">Cerrar</button></div>');
 }
 

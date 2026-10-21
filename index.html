@@ -355,6 +355,7 @@ td small{display:block;color:var(--muted);font-size:12px}
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file-in" hidden>
 
+<script src="supabase.js"></script>
 <script>
 (function(){
 'use strict';
@@ -785,7 +786,146 @@ async function init(){
       return;
     }catch(e){}
   }
+  supaInit();
+}
+
+/* ---------- sincronización (Supabase) ---------- */
+const SB_URL='https://cubdzyczfntnujqoazru.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN1YmR6eWN6Zm50bnVqcW9henJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI1NzExNDMsImV4cCI6MjEwODE0NzE0M30.ct0A428icOthjOY6Cfyn0ipOr4OaOgluhLRCvPRP4qs';
+let SB=null;
+function sbClient(){
+  if(SB)return SB;
+  try{if(window.supabase&&window.supabase.createClient)SB=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});}catch(e){SB=null;}
+  return SB;
+}
+function sbBase(uid){
+  const subs={};
+  const fetchKind=async kind=>{
+    let all=[],from=0;
+    for(;;){
+      const r=await SB.from('journal_docs').select('doc_id,data').eq('kind',kind).range(from,from+999);
+      if(r.error)throw r.error;
+      all=all.concat(r.data||[]);if(!r.data||r.data.length<1000)break;from+=1000;
+    }
+    return all;
+  };
+  const notify=async kind=>{
+    const L=subs[kind];if(!L||!L.length)return;
+    let rows;try{rows=await fetchKind(kind);}catch(e){L.forEach(x=>x.err&&x.err(e));return;}
+    L.forEach(x=>x.fn(rows));
+  };
+  const doc=(kind,id)=>({
+    set:async data=>{const r=await SB.from('journal_docs').upsert({user_id:uid,kind:kind,doc_id:id,data:data,updated_at:new Date().toISOString()});if(r.error)throw r.error;},
+    delete:async()=>{const r=await SB.from('journal_docs').delete().eq('kind',kind).eq('doc_id',id);if(r.error)throw r.error;},
+    onSnapshot:(cb,err)=>{(subs[kind]=subs[kind]||[]).push({fn:rows=>{const x=rows.find(r=>r.doc_id===id);cb({exists:!!x,data:()=>x?x.data:null});},err:err});notify(kind);}
+  });
+  const base={
+    collection:kind=>({
+      doc:id=>doc(kind,id),
+      onSnapshot:(cb,err)=>{(subs[kind]=subs[kind]||[]).push({fn:rows=>cb({docs:rows.map(r=>({id:r.doc_id,data:()=>r.data}))}),err:err});notify(kind);}
+    }),
+    refreshAll:()=>Object.keys(subs).forEach(notify)
+  };
+  let tm={};
+  try{
+    SB.channel('jd-'+uid).on('postgres_changes',{event:'*',schema:'public',table:'journal_docs',filter:'user_id=eq.'+uid},pl=>{
+      const k=(pl.new&&pl.new.kind)||(pl.old&&pl.old.kind);
+      const ks=k?[k]:Object.keys(subs);
+      ks.forEach(kk=>{if(kk==='img')return;clearTimeout(tm[kk]);tm[kk]=setTimeout(()=>{if(!S.writing)notify(kk);},700);});
+    }).subscribe();
+  }catch(e){}
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!S.writing)base.refreshAll();});
+  window.addEventListener('focus',()=>{if(!S.writing)base.refreshAll();});
+  return base;
+}
+function startSync(sess){
+  const u=sess.user;
+  S.sbUser={id:u.id,email:u.email||''};
+  S.base=sbBase(u.id);
+  S.backend={kind:'cloud'};S.kind='cloud';S.sync='supa';
+  let gotT=false,gotS=false,gotA=false,migrated=false;
+  const ready=()=>{
+    if(gotT&&gotS&&!S.ready){S.ready=true;render();}
+    if(gotT&&gotS&&gotA&&!migrated){migrated=true;migrateLocal();}
+  };
+  S.base.collection('trades').onSnapshot(snap=>{
+    const map=new Map();
+    snap.docs.forEach(d=>{const x=d.data();map.set(d.id,Array.isArray(x&&x.items)?x.items:[]);});
+    gotT=true;
+    if(S.writing>0){S.lastSnap=map;return;}
+    applySnap(map);ready();
+  },()=>{if(!S.ready){toast('No se pudo conectar con tu cuenta. Usando los datos de este dispositivo.');useLocal();}});
+  S.base.collection('meta').doc('settings').onSnapshot(snap=>{
+    if(S.writing>0&&gotS)return;
+    S.settings=mergeSettings(snap.exists?snap.data():null);
+    gotS=true;refresh();render();ready();
+  },()=>{});
+  S.base.collection('accounts').onSnapshot(snap=>{
+    S.fo.list=snap.docs.map(d=>normAcc(Object.assign({id:d.id},d.data())));
+    foSort();S.foReady=true;gotA=true;
+    if(S.fo.list.length)lsSet('bt-fo-had','1');
+    render();ready();
+  },()=>{if(!S.foReady){loadLocalFo();render();}});
+}
+async function migrateLocal(){
+  const key='bt-migrated-'+S.sbUser.id;
+  if(lsGet(key)==='1')return;
+  let d=null;try{d=JSON.parse(lsGet('bt-data')||'null');}catch(e){d=null;}
+  const lt=d&&Array.isArray(d.trades)?d.trades.map(normTrade):[];
+  let lf=[];try{lf=JSON.parse(lsGet('bt-fondeo')||'[]').map(normAcc);}catch(e){lf=[];}
+  const have=new Set(S.trades.map(t=>t.id)),haveA=new Set(S.fo.list.map(a=>a.id));
+  const newT=lt.filter(t=>!have.has(t.id)),newA=lf.filter(a=>!haveA.has(a.id));
+  let ok=true;
+  if(d&&d.settings){
+    const ls=mergeSettings(d.settings),st=S.settings;let ch=false;
+    Object.keys(st).forEach(k=>{if(Array.isArray(st[k])&&Array.isArray(ls[k]))ls[k].forEach(v=>{if(st[k].indexOf(v)<0){st[k].push(v);ch=true;}});});
+    if(ch)await saveSettings();
+  }
+  if(newT.length)ok=await upsertTrades(newT);
+  for(const a of newA){if(!(await persistAcc(a)))ok=false;}
+  try{const imgs=await imgAll();for(const k of Object.keys(imgs)){await sbImgPut(k,imgs[k]);}}catch(e){}
+  if(ok){lsSet(key,'1');if(newT.length||newA.length)toast('Subidas a tu cuenta '+newT.length+' operaciones'+(newA.length?' y '+newA.length+' cuentas de fondeo':'')+' de este dispositivo.');}
+}
+async function sbImgPut(id,d){if(S.sync!=='supa')return true;const r=await SB.from('journal_docs').upsert({user_id:S.sbUser.id,kind:'img',doc_id:id,data:{d:d},updated_at:new Date().toISOString()});return !r.error;}
+async function sbImgGet(id){if(S.sync!=='supa')return null;const r=await SB.from('journal_docs').select('data').eq('kind','img').eq('doc_id',id).maybeSingle();return r.data&&r.data.data?r.data.data.d:null;}
+async function sbImgDel(id){if(S.sync!=='supa')return;try{await SB.from('journal_docs').delete().eq('kind','img').eq('doc_id',id);}catch(e){}}
+function authModal(msg){
+  openModal('<form id="f-auth"><h2>Sincroniza tu journal</h2><p class="note" style="margin-bottom:14px">Entra con tu cuenta para ver las mismas operaciones en el móvil y en el ordenador. Solo tú ves tus datos.</p>'+
+    '<div class="fgrid"><label class="full">Email<input type="email" id="au-email" autocomplete="email" required></label>'+
+    '<label class="full">Contraseña<input type="password" id="au-pass" autocomplete="current-password" minlength="6" required placeholder="Mínimo 6 caracteres"></label></div>'+
+    '<p class="err" id="au-msg" role="alert"'+(msg?'':' hidden')+'>'+esc(msg||'')+'</p>'+
+    '<div class="btns"><button class="btn sp" type="button" data-act="auth-skip">Ahora no</button><button class="btn" type="submit" data-mode="up">Crear cuenta</button><button class="btn primary" type="submit" data-mode="in">Entrar</button></div></form>');
+}
+async function doAuth(mode){
+  const m=$('au-msg'),say=(t,ok)=>{m.textContent=t;m.hidden=false;m.className=ok?'note':'err';};
+  const email=$('au-email').value.trim(),pass=$('au-pass').value;
+  if(!email||pass.length<6)return say('Escribe tu email y una contraseña de al menos 6 caracteres.');
+  const sb=sbClient();if(!sb)return say('No hay conexión. Inténtalo cuando tengas internet.');
+  say(mode==='up'?'Creando tu cuenta…':'Entrando…',true);
+  let r;
+  if(mode==='up'){
+    r=await sb.auth.signUp({email:email,password:pass,options:{emailRedirectTo:location.origin+location.pathname}});
+    if(r.error)return say(/registered|already/i.test(r.error.message)?'Ese email ya tiene cuenta. Pulsa «Entrar».':'No se pudo crear la cuenta: '+r.error.message);
+    if(!r.data.session)return say('Te hemos enviado un email para confirmar la cuenta. Pulsa el enlace y luego vuelve aquí y dale a «Entrar».',true);
+  }else{
+    r=await sb.auth.signInWithPassword({email:email,password:pass});
+    if(r.error)return say(/confirm/i.test(r.error.message)?'Primero confirma tu email con el enlace que te enviamos.':'Email o contraseña incorrectos.');
+  }
+  closeModal();lsSet('bt-auth-skip','0');
+  S.ready=false;startSync(r.data.session);toast('Sincronización activada');
+}
+async function signOut(){
+  try{await SB.auth.signOut();}catch(e){}
+  location.reload();
+}
+async function supaInit(){
+  const sb=sbClient();
+  if(!sb){useLocal();return;}
+  let sess=null;
+  try{sess=(await sb.auth.getSession()).data.session;}catch(e){sess=null;}
+  if(sess){startSync(sess);return;}
   useLocal();
+  if(lsGet('bt-auth-skip')!=='1')authModal();
 }
 
 /* ---------- navegación y cabecera ---------- */
@@ -807,7 +947,7 @@ function renderBar(){
   $('f-acc').innerHTML='<option value="all">Todas las cuentas</option>'+accs.map(a=>'<option value="'+esc(a)+'">'+esc(a)+'</option>').join('');
   $('f-acc').value=S.f.account;
   const am=document.querySelector('#filters .only-m');if(am)am.hidden=S.view==='fondeo';
-  $('sync').textContent=(S.view==='fondeo'?foDemo():S.demo)?'':(S.kind==='cloud'?'Guardado en tu cuenta. Solo tú lo ves.':(S.kind==='local'?'Guardado solo en este navegador.':''));
+  $('sync').textContent=(S.view==='fondeo'?foDemo():S.demo)?'':(S.kind==='cloud'?(S.sync==='supa'?'Sincronizado · '+S.sbUser.email:'Guardado en tu cuenta. Solo tú lo ves.'):(S.kind==='local'?'Guardado solo en este navegador.':''));
 }
 function renderBanner(){
   const fo=S.view==='fondeo',on=fo?foDemo():S.demo;
@@ -1162,7 +1302,9 @@ function viewSettings(){
   const lists=LISTS.map(l=>'<section class="panel"><h2>'+l[1]+'</h2>'+(l[2]?'<p class="sub">'+l[2]+'</p>':'')+
     '<div class="chips" style="margin:12px 0">'+(st[l[0]].length?st[l[0]].map(v=>'<span class="chip">'+esc(v)+'<button type="button" class="chip" style="border:0;padding:0 2px;background:transparent" data-act="rm-item" data-list="'+l[0]+'" data-v="'+esc(v)+'" aria-label="Quitar '+esc(v)+'"><span class="x">×</span></button></span>').join(''):'<span class="dim">Lista vacía</span>')+'</div>'+
     '<form class="addrow" data-add="'+l[0]+'"><input aria-label="Añadir a '+l[1]+'" placeholder="Añadir…" autocomplete="off"><button class="btn small" type="submit">Añadir</button></form></section>').join('');
-  return '<div class="stack"><section class="panel"><h2 style="margin-bottom:12px">Preferencias</h2><div class="fields">'+
+  const acct=S.sync==='supa'?'<section class="panel"><h2>Sincronización</h2><p class="sub">Conectado como <b>'+esc(S.sbUser.email)+'</b>. Tus operaciones se sincronizan entre el móvil y el ordenador.</p><div class="chips" style="margin-top:12px"><button class="btn small" type="button" data-act="auth-out">Cerrar sesión</button></div></section>':
+    (S.kind==='local'?'<section class="panel"><h2>Sincronización</h2><p class="sub">Ahora tus datos solo están en este dispositivo. Entra con tu cuenta para verlos también en el móvil y en el ordenador.</p><div class="chips" style="margin-top:12px"><button class="btn small primary" type="button" data-act="auth-open">Entrar o crear cuenta</button></div></section>':'');
+  return '<div class="stack">'+acct+'<section class="panel"><h2 style="margin-bottom:12px">Preferencias</h2><div class="fields">'+
     '<label>Moneda<select id="set-cur"><option value="USD"'+(st.currency==='USD'?' selected':'')+'>Dólares ($)</option><option value="EUR"'+(st.currency==='EUR'?' selected':'')+'>Euros (€)</option></select></label>'+
     '<label>Break-even si el P&amp;L neto está entre ±<input id="set-be" inputmode="decimal" value="'+esc(String(st.be))+'"></label>'+
     '<label>Mínimo de operaciones para fiarte de una estadística<input id="set-minn" inputmode="numeric" value="'+esc(String(st.minN))+'"></label>'+
@@ -1222,10 +1364,11 @@ function idb(){
   return idbP;
 }
 function idbDo(mode,fn){return idb().then(db=>new Promise((ok,ko)=>{const tx=db.transaction('img',mode),st=tx.objectStore('img');const r=fn(st);tx.oncomplete=()=>ok(r&&r.result);tx.onerror=()=>ko(tx.error);}));}
-const imgGet=id=>idbDo('readonly',st=>st.get(id)).catch(()=>null);
-const imgPut=(id,d)=>idbDo('readwrite',st=>st.put(d,id)).then(()=>true).catch(()=>false);
-const imgDel=id=>idbDo('readwrite',st=>st.delete(id)).catch(()=>{});
-const imgAll=()=>idbDo('readonly',st=>st.getAllKeys()).then(async keys=>{const o={};for(const k of keys||[]){const d=await imgGet(k);if(d)o[k]=d;}return o;}).catch(()=>({}));
+const imgGetL=id=>idbDo('readonly',st=>st.get(id)).catch(()=>null);
+const imgGet=async id=>{let d=await imgGetL(id);if(!d){try{d=await sbImgGet(id);}catch(e){d=null;}if(d)idbDo('readwrite',st=>st.put(d,id)).catch(()=>{});}return d;};
+const imgPut=async(id,d)=>{const ok=await idbDo('readwrite',st=>st.put(d,id)).then(()=>true).catch(()=>false);let ok2=true;try{ok2=await sbImgPut(id,d);}catch(e){ok2=false;}return ok||ok2;};
+const imgDel=id=>{sbImgDel(id);return idbDo('readwrite',st=>st.delete(id)).catch(()=>{});};
+const imgAll=()=>idbDo('readonly',st=>st.getAllKeys()).then(async keys=>{const o={};for(const k of keys||[]){const d=await imgGetL(k);if(d)o[k]=d;}return o;}).catch(()=>({}));
 function renderShot(missing){
   const box=$('ft-shot');if(!box)return;
   if(SHOT.cur){
@@ -1659,6 +1802,9 @@ document.addEventListener('click',e=>{
   switch(act){
     case 'nav':setView(t.dataset.view);return;
     case 'close':closeModal();return;
+    case 'auth-open':authModal();return;
+    case 'auth-skip':lsSet('bt-auth-skip','1');closeModal();toast('Puedes activarla cuando quieras en Ajustes.');return;
+    case 'auth-out':signOut();return;
     case 'shot-pick':pickShot();return;
     case 'shot-rm':SHOT.cur=null;SHOT.changed=true;renderShot();return;
     case 'shot-zoom':zoomShot(t.src);return;
@@ -1712,6 +1858,7 @@ document.addEventListener('submit',e=>{
   const f=e.target;
   if(f.id==='f-fo-account'){saveFoAccount(f);return;}
   if(f.id==='f-fo-move'){saveFoMove();return;}
+  if(f.id==='f-auth'){doAuth(e.submitter&&e.submitter.dataset.mode==='up'?'up':'in');return;}
   if(f.id==='f-trade'){saveTradeForm(!!(e.submitter&&e.submitter.dataset.again));return;}
   if(f.dataset.add){
     const inp=f.querySelector('input'),v=inp.value.trim(),k=f.dataset.add;

@@ -1151,13 +1151,7 @@ function viewCal(){
 const fTag=n=>accFunded(n)?' <span class="tag-funded">Funded</span>':'';
 const accH=n=>esc(n)+fTag(n);
 const lblH=(d,l)=>d&&d.id==='account'?accH(l):esc(l);
-function accFunded(name){
-  const n=String(name||'').toLowerCase().replace(/[^a-z0-9#]+/g,' ').trim();if(!n)return false;
-  const nm=x=>String(x||'').toLowerCase().replace(/[^a-z0-9#]+/g,' ').trim();
-  const a=(S.fo.list||[]).find(x=>{const f=nm(x.firm),l=nm(x.label),f1=f.split(' ')[0];return n===nm(x.firm+' '+x.label)||(l&&n===l)||(l&&f1&&n.indexOf(l)>=0&&n.indexOf(f1)>=0);});
-  if(a)return isFunded(a);
-  return /\b(funded|fondead[ao]|pa)\b/.test(n);
-}
+function accFunded(name){return /funded/i.test(String(name||''));}
 function dayModal(ds){
   const L=sortChrono(byAccount().filter(t=>t.date===ds)),s=stats(L);
   const rows=L.map(t=>'<button class="lt" type="button" data-act="edit" data-id="'+esc(t.id)+'"><span class="a"><b>'+esc(t.asset||'—')+'</b><span class="dir '+t.dir+'">'+(t.dir==='long'?'Long':'Short')+'</span></span><span class="b">'+(t.account?'<b class="acc">'+esc(t.account)+'</b>'+fTag(t.account):'Sin cuenta')+'</span><span class="c '+sg(t.net)+'">'+money(t.net,{plus:true})+'<small>'+(t.r!=null?rTxt(t.r):'')+'</small></span></button>').join('');
